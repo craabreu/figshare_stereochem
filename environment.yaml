@@ -1,0 +1,10 @@
+name: figshare_stereochem
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pymupdf>=1.24
+  - requests>=2.32
+  - tqdm>=4.67
+  - ipykernel>=7.1
+  - ipywidgets>=8.1
