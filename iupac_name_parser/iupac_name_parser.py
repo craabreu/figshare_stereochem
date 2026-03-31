@@ -63,11 +63,10 @@ class IUPACNameParser:
         imply_acid: bool = False,
         allow_radicals: bool = False,
         use_wildcards: bool = False,
-        ignore_bad_stereo: bool = False,
-        analyze_failures: bool = False,
+        ignore_bad_stereo: bool = True,
+        analyze_failures: bool = True,
         fix_uninterpretable: bool = True,
         fix_brackets: bool = True,
-        verbose: bool = False,
     ):
         self._nts = opsin.NameToStructure.getInstance()
         self._nti = opsin.NameToInchi()
@@ -81,7 +80,6 @@ class IUPACNameParser:
         self._config.setDetailedFailureAnalysis(analyze_failures)
         self._fix_uninterpretable = fix_uninterpretable
         self._fix_brackets = fix_brackets
-        self._verbose = verbose
 
     @staticmethod
     def _preprocess_name(name: str) -> str:
@@ -130,50 +128,67 @@ class IUPACNameParser:
 
     def _parse_name(
         self, name: str, original_name: str | None = None
-    ) -> tuple[str, opsin.OpsinResult]:
-        if original_name is None:
-            original_name = name
+    ) -> opsin.OpsinResult:
+        """Parse a chemical name and return the result.
+
+        Parameters
+        ----------
+        name : str
+            The chemical name to parse.
+        original_name : str | None, optional
+            The original chemical name.
+
+        Returns
+        -------
+        result : opsin.OpsinResult
+            The result of the parsing.
+        """
         name = self._preprocess_name(name)
         if name == "":
             raise ValueError("Empty name")
-        if self._verbose:
-            print(f"Name: <{name}>")
         result = self._nts.parseChemicalName(name, self._config)
         if result.getStatus() == opsin.OpsinResult.OPSIN_RESULT_STATUS.FAILURE:
             error = str(result.getMessage())
+            if "unsure" in error:
+                raise ValueError(f"Unable to parse '{original_name or name}'")
+            fixed = ""
             if self._fix_uninterpretable and "uninterpretable" in error:
                 fixed = self._fix_uninterpretable_molecule(name, error)
-                if fixed and fixed != name:
-                    return self._parse_name(fixed, original_name)
             elif self._fix_brackets and error.startswith("Unmatched opening bracket"):
                 fixed = self._fix_unmatched_opening_bracket(name)
-                if fixed:
-                    return self._parse_name(fixed, original_name)
             elif self._fix_brackets and error.startswith("Unmatched closing bracket"):
                 fixed = self._fix_unmatched_closing_bracket(name)
-                if fixed:
-                    return self._parse_name(fixed, original_name)
-            elif "unsure" in error:
-                raise ValueError(f"Unable to parse '{original_name}'")
+            if fixed and fixed != name:
+                return self._parse_name(fixed, original_name)
             raise ValueError(error)
-        return name, result
+        return result
 
-    def to_smiles(self, name: str) -> tuple[str, str]:
-        name, result = self._parse_name(name)
-        return name, str(result.getSmiles())
+    def __call__(self, name: str) -> tuple[str, str, bool, bool]:
+        return self.to_smiles(name)
 
-    def to_cml(self, name: str) -> tuple[str, str]:
-        name, result = self._parse_name(name)
-        return name, str(result.getCml())
+    def to_smiles(self, name: str) -> tuple[str, str, bool, bool]:
+        """Parse a chemical name and return the result.
 
-    def to_inchi(
-        self, name: str, fixed_hydrogen_layer: bool = False
-    ) -> tuple[str, str]:
-        name, result = self._parse_name(name)
-        if fixed_hydrogen_layer:
-            return name, str(self._nti.convertResultToInChI(result))
-        return name, str(self._nti.convertResultToStdInChI(result))
+        Parameters
+        ----------
+        name : str
+            The chemical name to parse.
 
-    def to_inchi_key(self, name: str) -> tuple[str, str]:
-        name, result = self._parse_name(name)
-        return name, str(self._nti.convertResultToStdInChIKey(result))
+        Returns
+        -------
+        name : str
+            The chemical name.
+        smiles : str
+            The SMILES representation of the chemical name.
+        appears_ambiguous : bool
+            Whether the chemical name appears to be ambiguous.
+        stereochemistry_ignored : bool
+            Whether stereochemistry was ignored.
+        """
+        result = self._parse_name(name)
+        return (
+            str(result.getChemicalName()),
+            str(result.getSmiles()),
+            bool(result.nameAppearsToBeAmbiguous()),
+            bool(result.stereochemistryIgnored()),
+        )
