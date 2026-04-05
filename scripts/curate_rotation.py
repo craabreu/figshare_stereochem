@@ -140,21 +140,26 @@ def parsed_excess_message(s: str) -> str:
         if (v1 + v2) == 0:
             return ""
         excess = round(100 * abs(v1 - v2) / (v1 + v2), 1)
-        return f"(100*abs({c1}-{c2})/({c1}+{c2}) = {excess}%)"
+        cmax = c1 if v1 > v2 else c2
+        cmin = c1 if v1 < v2 else c2
+        return (
+            f"{excess}%, computed from {c1}:{c2} as 100*({cmax}-{cmin})/({cmax}+{cmin})"
+        )
     return f"{match.group(1)}%"
 
 
 def make_prompt(context, rotation_text, candidate):
     molecule = str(candidate.get("molecule", "unknown"))
     excess_or_ratio = str(candidate.get("excess_or_ratio", "unknown"))
-
+    operator = str(candidate.get("operator", ""))
     excess_message = parsed_excess_message(excess_or_ratio)
+    qualifier = "precisely" if operator == "=" else "greater than"
 
     return (
         f"{context}\n\n"
         "Read it carefully and assign a confidence level from 0 to 100 to each statement.\n\n"
         f'1. The compound with optical rotation "{rotation_text}" is "{molecule}".\n\n'
-        f'2. The stereoisomeric excess of "{molecule}" is {excess_message}.\n'
+        f'2. The stereoisomeric excess of "{molecule}" is {qualifier} {excess_message}.\n'
     )
 
 

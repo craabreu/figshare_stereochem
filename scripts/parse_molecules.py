@@ -74,8 +74,8 @@ def call_llm(client, prompt, model):
 def worker(tasks, model, port, error_queue):
     gpu_id = port - BASE_PORT
     total = len(tasks)
-    client = ollama.Client(host=f"http://localhost:{port}")
-    last_log = time.monotonic()
+    client = ollama.Client(host=f"http://localhost:{port}", timeout=20)
+    last_log = time.monotonic() - (LOG_INTERVAL + 1)
     cached_file = None
     cached_text = None
     for i, (block, text_file) in enumerate(tasks, 1):
