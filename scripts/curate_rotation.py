@@ -54,6 +54,12 @@ class Response(pydantic.BaseModel):
     confidence_statement_2: int = pydantic.Field(ge=0, le=100)
 
 
+class ExcessResponse(pydantic.BaseModel):
+    reasoning: str
+    there_is_evidence: bool
+    excess_value: float = pydantic.Field(ge=0, le=100)
+
+
 def parse_task_id(input_file):
     rel_parts = input_file.relative_to(INPUT_DIR).parts
     if len(rel_parts) != 3:
@@ -142,9 +148,7 @@ def parsed_excess_message(s: str) -> str:
         excess = round(100 * abs(v1 - v2) / (v1 + v2), 1)
         cmax = c1 if v1 > v2 else c2
         cmin = c1 if v1 < v2 else c2
-        return (
-            f"{excess}% [{c1}:{c2} → 100*({cmax}-{cmin})/({cmax}+{cmin})]"
-        )
+        return f"{excess}% [{c1}:{c2} → 100*({cmax}-{cmin})/({cmax}+{cmin})]"
     return f"{match.group(1).strip()}%"
 
 
@@ -164,35 +168,67 @@ def make_prompt(context, rotation_text, candidate):
     )
 
 
-def call_llm(client, prompt, model):
+def call_llm(client, messages, model, pydantic_model):
     response = client.chat(
         model=model,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": prompt},
-        ],
-        format=Response.model_json_schema(),
+        messages=[{"role": "system", "content": SYSTEM_PROMPT}, *messages],
+        format=pydantic_model.model_json_schema(),
         think=False,
         options={"temperature": 0},
     )
-    return Response.model_validate_json(response.message.content).model_dump()
+    parsed = pydantic_model.model_validate_json(response.message.content).model_dump()
+    return parsed, response.message.content
 
 
 def score_candidate(client, model, prompt, candidate):
+    messages = [{"role": "user", "content": prompt}]
     try:
-        response = call_llm(client, prompt, model)
+        response, assistant_content = call_llm(client, messages, model, Response)
+        messages.append({"role": "assistant", "content": assistant_content})
+        return (
+            {
+                **candidate,
+                "reasoning": response["reasoning"],
+                "major_isomer_confidence": response["confidence_statement_1"],
+                "excess_confidence": response["confidence_statement_2"],
+            },
+            messages,
+        )
+    except Exception as e:
+        return (
+            {
+                **candidate,
+                "reasoning": f"Error during processing: {e}",
+                "major_isomer_confidence": 0,
+                "excess_confidence": 0,
+            },
+            messages,
+        )
+
+
+def resolve_excess(client, model, molecule, messages):
+    prompt = (
+        "1. Is there enough evidence in the text to extract the actual stereoisomeric "
+        f'stereoisomeric excess of "{molecule}"?\n'
+        "2. If so, what is the actual value? If not, answer with 0.\n"
+    )
+    try:
+        response, _ = call_llm(
+            client,
+            [*messages, {"role": "user", "content": prompt}],
+            model,
+            ExcessResponse,
+        )
         return {
-            **candidate,
+            "evident": bool(response["there_is_evidence"]),
+            "value": float(response["excess_value"]),
             "reasoning": response["reasoning"],
-            "major_isomer_confidence": response["confidence_statement_1"],
-            "excess_confidence": response["confidence_statement_2"],
         }
     except Exception as e:
         return {
-            **candidate,
+            "evident": False,
+            "value": 0,
             "reasoning": f"Error during processing: {e}",
-            "major_isomer_confidence": 0,
-            "excess_confidence": 0,
         }
 
 
@@ -243,7 +279,17 @@ def curate_single_input(input_file, model, client, text_cache, rotations_cache):
         curated = []
         for candidate in candidates:
             prompt = make_prompt(context, rotation_text, candidate)
-            curated.append(score_candidate(client, model, prompt, candidate))
+            scored, messages = score_candidate(client, model, prompt, candidate)
+            if (
+                len(candidates) == 1
+                and scored["major_isomer_confidence"] == 100
+                and scored["excess_confidence"] < 100
+            ):
+                molecule = str(candidate.get("molecule", "unknown"))
+                scored["excess_recovery"] = resolve_excess(
+                    client, model, molecule, messages
+                )
+            curated.append(scored)
         return article_id, file_stem, block_start, curated, None
     except Exception as e:
         if candidates:
