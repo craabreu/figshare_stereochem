@@ -146,6 +146,8 @@ def parsed_excess_message(s: str) -> str:
         if (v1 + v2) == 0:
             return ""
         excess = round(100 * abs(v1 - v2) / (v1 + v2), 1)
+        if excess == int(excess):
+            excess = int(excess)
         cmax = c1 if v1 > v2 else c2
         cmin = c1 if v1 < v2 else c2
         return f"{excess}% [{c1}:{c2} → 100*({cmax}-{cmin})/({cmax}+{cmin})]"
@@ -155,10 +157,8 @@ def parsed_excess_message(s: str) -> str:
 def make_prompt(context, rotation_text, candidate):
     molecule = str(candidate.get("molecule", "unknown"))
     excess_or_ratio = str(candidate.get("excess_or_ratio", "unknown"))
-    operator = str(candidate.get("operator", ""))
     excess_message = parsed_excess_message(excess_or_ratio)
-    if operator == ">":
-        context = context.replace(">", "")
+    context = context.replace(">", "")  # assume equality for all candidates
     return (
         f"{context}\n\n"
         "Read the excerpt above carefully and assign a confidence level from 0 to 100 "
@@ -208,8 +208,8 @@ def score_candidate(client, model, prompt, candidate):
 
 def resolve_excess(client, model, molecule, messages):
     prompt = (
-        "1. Is there enough evidence in the text to extract the actual stereoisomeric "
-        f'stereoisomeric excess of "{molecule}"?\n'
+        "1. Is there enough evidence in the text to extract the stereoisomeric "
+        f'stereoisomeric excess of "{molecule}" with 100% confidence?\n'
         "2. If so, what is the actual value? If not, answer with 0.\n"
     )
     try:
