@@ -209,7 +209,7 @@ def score_candidate(client, model, prompt, candidate):
 def resolve_excess(client, model, molecule, messages):
     prompt = (
         "1. Is there enough evidence in the text to extract the stereoisomeric "
-        f'stereoisomeric excess of "{molecule}" with 100% confidence?\n'
+        f'excess of "{molecule}" with 100% confidence?\n'
         "2. If so, what is the actual value? If not, answer with 0.\n"
     )
     try:
