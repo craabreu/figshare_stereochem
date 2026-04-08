@@ -21,6 +21,8 @@ ROTATION_RESULTS_DIR = TREATED_DATA_DIR / "rotation_results"
 OUTPUT_DIR = TREATED_DATA_DIR / "curation_results" / "rotation"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
+CONFIDENCE_THRESHOLD = 90
+
 BASE_PORT = 11434
 LOG_INTERVAL = 60
 
@@ -282,8 +284,8 @@ def curate_single_input(input_file, model, client, text_cache, rotations_cache):
             scored, messages = score_candidate(client, model, prompt, candidate)
             if (
                 len(candidates) == 1
-                and scored["major_isomer_confidence"] == 100
-                and scored["excess_confidence"] < 100
+                and scored["major_isomer_confidence"] >= CONFIDENCE_THRESHOLD
+                and scored["excess_confidence"] < CONFIDENCE_THRESHOLD
             ):
                 molecule = str(candidate.get("molecule", "unknown"))
                 scored["excess_recovery"] = resolve_excess(
